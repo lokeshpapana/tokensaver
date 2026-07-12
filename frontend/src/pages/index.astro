@@ -1,182 +1,588 @@
----
-import Main from '../layouts/Main.astro';
----
-<Main title="TokenSaver - Cut LLM Token Costs by 89%">
-    <div class="container">
-        <header>
-            <h1>TokenSaver</h1>
-            <p>Convert text files to dense PNG images. Cut LLM token costs by up to 89%.</p>
-            <div class="auth-bar" id="authBar"></div>
-        </header>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TokenSaver - Cut LLM Token Costs by 89%</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #22c55e;
+            --accent-hover: #16a34a;
+            --accent-bg: #166534;
+            --border: #334155;
+            --card-bg: #1e293b;
+            --input-bg: #0f172a;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --transition: all 0.2s ease;
+        }
 
-        <div class="stats-bar">
-            <div class="stat-item">
-                <div class="stat-value" id="totalConversions">0</div>
-                <div class="stat-label">Conversions</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-value" id="totalSaved">0</div>
-                <div class="stat-label">Tokens Saved</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-value" id="avgSavings">89%</div>
-                <div class="stat-label">Avg Savings</div>
-            </div>
-        </div>
+        [data-theme="light"] {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-tertiary: #e2e8f0;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #94a3b8;
+            --accent: #16a34a;
+            --accent-hover: #15803d;
+            --accent-bg: #dcfce7;
+            --border: #e2e8f0;
+            --card-bg: #ffffff;
+            --input-bg: #f8fafc;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
 
-        <div class="upload-zone" id="dropZone">
-            <div class="icon">&#128196;</div>
-            <h3>Drop files here or click to browse</h3>
-            <p>Supports: .txt .py .js .ts .json .md .html .css .xml .yaml .pdf .docx and more</p>
-            <p class="upload-limit">Max 10MB per file, up to 20 files at once</p>
-            <input type="file" id="fileInput" multiple style="display:none"
-                accept=".txt,.py,.js,.ts,.jsx,.tsx,.json,.jsonl,.xml,.html,.htm,.css,.md,.yaml,.yml,.toml,.ini,.cfg,.csv,.tsv,.log,.sql,.sh,.bash,.bat,.ps1,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.cs,.php,.swift,.kt,.r,.scala,.dart,.vue,.svelte,.env,.gitignore,.dockerfile,.makefile,.cmake,.gradle,.lock,.rst,.adoc,.tex,.bib,.pdf,.docx">
-        </div>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
 
-        <div class="or-divider"><span>OR</span></div>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            transition: background 0.3s ease, color 0.3s ease;
+            line-height: 1.6;
+        }
 
-        <div class="text-section">
-            <textarea id="textInput" placeholder="Paste your text here..."></textarea>
-            <div class="estimate-box" id="estimateBox">
-                <div class="estimate-row">
-                    <span class="estimate-label">Characters:</span>
-                    <span class="estimate-value" id="estChars">0</span>
-                </div>
-                <div class="estimate-row">
-                    <span class="estimate-label">Text Tokens:</span>
-                    <span class="estimate-value" id="estTextTokens">0</span>
-                </div>
-                <div class="estimate-row">
-                    <span class="estimate-label">Est. Image Tokens:</span>
-                    <span class="estimate-value" id="estImageTokens">0</span>
-                </div>
-                <div class="estimate-row">
-                    <span class="estimate-label">Est. Savings:</span>
-                    <span class="estimate-value" id="estSavings">0%</span>
-                </div>
-                <div class="estimate-worse hidden" id="estWorse">
-                    WARNING: Image will cost MORE tokens. Send as text instead.
-                </div>
-            </div>
-            <div class="text-actions">
-                <span id="charCount">0 characters</span>
-                <button class="btn btn-primary" id="convertTextBtn" disabled>Convert Text to PNG</button>
-            </div>
-        </div>
+        /* Skip link for accessibility */
+        .skip-link {
+            position: absolute; top: -40px; left: 0; background: var(--accent); color: white;
+            padding: 8px 16px; z-index: 100; border-radius: 0 0 var(--radius) 0;
+            transition: top 0.2s;
+        }
+        .skip-link:focus { top: 0; }
 
-        <div class="file-list hidden" id="fileList">
-            <div id="fileItems"></div>
-        </div>
+        /* Header */
+        header {
+            position: sticky; top: 0; z-index: 50;
+            background: rgba(var(--bg-primary), 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+        }
 
-        <div class="controls">
-            <label class="checkbox-label">
-                Mode:
-                <select id="modeSelect">
-                    <option value="readable">Readable (11px)</option>
-                    <option value="standard" selected>Standard (10px)</option>
-                    <option value="dense">Dense (8px, max compression)</option>
-                </select>
-            </label>
-            <label class="checkbox-label">
-                <input type="checkbox" id="lineNumbers"> Show line numbers
-            </label>
-            <button class="btn btn-primary" id="convertBtn" disabled>Convert to PNG</button>
-            <button class="btn btn-secondary hidden" id="clearBtn">Clear All</button>
-        </div>
+        .header-inner {
+            max-width: 1200px; margin: 0 auto; padding: 16px 24px;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 24px;
+        }
 
-        <div class="loading hidden" id="loading">
-            <div class="progress-ring">
-                <svg width="120" height="120">
-                    <circle class="progress-ring__bg" cx="60" cy="60" r="54" stroke="#21262d" stroke-width="4" fill="none"/>
-                    <circle class="progress-ring__circle" id="progressCircle" cx="60" cy="60" r="54"
-                        stroke-dasharray="339.292" stroke-dashoffset="339.292"/>
+        .logo {
+            display: flex; align-items: center; gap: 10px;
+            font-size: 1.5rem; font-weight: 700; color: var(--text-primary);
+            text-decoration: none;
+        }
+        .logo svg { width: 32px; height: 32px; color: var(--accent); }
+
+        nav.desktop-nav { display: none; gap: 8px; }
+        @media (min-width: 768px) { nav.desktop-nav { display: flex; } }
+
+        .nav-link {
+            padding: 8px 16px; border-radius: var(--radius-sm);
+            color: var(--text-secondary); text-decoration: none;
+            font-weight: 500; font-size: 0.9rem; transition: var(--transition);
+        }
+        .nav-link:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+
+        .header-actions { display: flex; align-items: center; gap: 12px; }
+
+        .theme-toggle {
+            width: 44px; height: 44px; border: 1px solid var(--border);
+            background: var(--card-bg); border-radius: var(--radius);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: var(--transition);
+        }
+        .theme-toggle:hover { background: var(--bg-tertiary); }
+        .theme-toggle svg { width: 22px; height: 22px; color: var(--text-secondary); }
+
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+            padding: 12px 24px; border-radius: var(--radius); font-weight: 600;
+            font-size: 0.95rem; border: none; cursor: pointer; transition: var(--transition);
+            text-decoration: none;
+        }
+        .btn-primary {
+            background: var(--accent); color: white;
+        }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-secondary {
+            background: var(--bg-tertiary); color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+        .btn-secondary:hover { background: var(--border); }
+        .btn-sm { padding: 8px 16px; font-size: 0.85rem; }
+
+        /* Mobile menu button */
+        .menu-toggle { display: flex; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; }
+        @media (min-width: 768px) { .menu-toggle { display: none; } }
+
+        /* Mobile drawer */
+        .mobile-drawer {
+            position: fixed; top: 0; right: -100%; width: 280px; height: 100vh;
+            background: var(--bg-primary); border-left: 1px solid var(--border);
+            z-index: 100; transition: right 0.3s ease; padding: 24px; overflow-y: auto;
+        }
+        .mobile-drawer.open { right: 0; }
+        .drawer-header { display: flex; justify-content: flex-end; margin-bottom: 24px; }
+        .drawer-close { width: 44px; height: 44px; border-radius: var(--radius); background: var(--card-bg); border: 1px solid var(--border); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .mobile-nav { display: flex; flex-direction: column; gap: 8px; }
+        .mobile-nav .nav-link { padding: 14px 16px; text-align: left; }
+
+        .drawer-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 99;
+            opacity: 0; visibility: hidden; transition: all 0.3s ease;
+        }
+        .drawer-overlay.open { opacity: 1; visibility: visible; }
+
+        /* Main content */
+        main { max-width: 900px; margin: 0 auto; padding: 48px 24px; }
+
+        /* Hero */
+        .hero { text-align: center; margin-bottom: 48px; }
+        .hero-badge {
+            display: inline-block; padding: 6px 14px; border-radius: 100px;
+            background: var(--accent-bg); color: var(--accent); font-size: 0.8rem;
+            font-weight: 600; margin-bottom: 16px;
+        }
+        .hero h1 {
+            font-size: clamp(2.5rem, 5vw, 3.5rem); font-weight: 800; line-height: 1.1;
+            margin-bottom: 16px; color: var(--text-primary);
+        }
+        .hero p { font-size: 1.15rem; color: var(--text-secondary); max-width: 600px; margin: 0 auto; }
+
+        /* Tool Card */
+        .tool-card {
+            background: var(--card-bg); border: 1px solid var(--border);
+            border-radius: var(--radius); box-shadow: var(--shadow-lg);
+            overflow: hidden;
+        }
+
+        .tool-header {
+            padding: 20px 24px; border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+        }
+        .tool-title { font-size: 1.1rem; font-weight: 600; color: var(--text-primary); }
+        .tool-badges { display: flex; gap: 8px; flex-wrap: wrap; }
+        .badge {
+            padding: 4px 10px; border-radius: 100px; font-size: 0.7rem; font-weight: 600;
+        }
+        .badge-free { background: var(--accent-bg); color: var(--accent); }
+        .badge-pro { background: #fef3c7; color: #92400e; }
+        [data-theme="light"] .badge-pro { background: #fef3c7; color: #92400e; }
+        [data-theme="dark"] .badge-pro { background: #3d2b00; color: #fde68a; }
+
+        /* Input/Output Areas */
+        .tool-body { padding: 24px; }
+        .text-areas { display: grid; gap: 24px; }
+        @media (min-width: 900px) { .text-areas { grid-template-columns: 1fr 1fr; } }
+
+        .text-area-wrapper { display: flex; flex-direction: column; gap: 12px; }
+        .area-header { display: flex; align-items: center; justify-content: space-between; }
+        .area-label { font-weight: 600; font-size: 0.9rem; color: var(--text-secondary); }
+        .word-count { font-size: 0.8rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+
+        .textarea-container { position: relative; }
+        textarea {
+            width: 100%; min-height: 300px; padding: 16px;
+            background: var(--input-bg); border: 1px solid var(--border);
+            border-radius: var(--radius); color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace; font-size: 0.9rem;
+            line-height: 1.7; resize: vertical; outline: none;
+            transition: var(--transition);
+        }
+        textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+        textarea::placeholder { color: var(--text-muted); }
+
+        .textarea-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .file-input { display: none; }
+
+        .btn-icon { padding: 10px 14px; gap: 6px; }
+        .btn-icon svg { width: 18px; height: 18px; }
+
+        /* Center Actions */
+        .center-actions {
+            display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
+            padding: 24px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+        }
+
+        /* Output Area - Read only */
+        .output-area .textarea-actions { justify-content: flex-end; }
+
+        /* Stats Bar */
+        .stats-bar {
+            display: flex; gap: 16px; padding: 16px 24px;
+            background: var(--bg-secondary); border-top: 1px solid var(--border);
+            flex-wrap: wrap; align-items: center;
+        }
+        .stat-item { display: flex; align-items: center; gap: 8px; }
+        .stat-label { font-size: 0.8rem; color: var(--text-muted); }
+        .stat-value { font-weight: 600; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; }
+        .stat-value.savings { color: var(--accent); }
+
+        /* Progress Ring */
+        .progress-ring {
+            width: 48px; height: 48px; position: relative;
+        }
+        .progress-ring svg { transform: rotate(-90deg); width: 48px; height: 48px; }
+        .progress-ring__bg { fill: none; stroke: var(--border); stroke-width: 4; }
+        .progress-ring__circle {
+            fill: none; stroke: var(--accent); stroke-width: 4; stroke-linecap: round;
+            stroke-dasharray: 138.23; stroke-dashoffset: 138.23;
+            transition: stroke-dashoffset 0.5s ease;
+        }
+        .progress-ring__text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 0.75rem; font-weight: 700; color: var(--text-primary); }
+
+        /* Features Grid */
+        .features { padding: 48px 24px; display: grid; gap: 16px; }
+        @media (min-width: 768px) { .features { grid-template-columns: repeat(3, 1fr); } }
+        .feature-card {
+            padding: 24px; background: var(--card-bg); border: 1px solid var(--border);
+            border-radius: var(--radius); transition: var(--transition);
+        }
+        .feature-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+        .feature-icon { width: 40px; height: 40px; background: var(--accent-bg); border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; }
+        .feature-icon svg { width: 22px; height: 22px; color: var(--accent); }
+        .feature-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); }
+        .feature-card p { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; }
+
+        /* Footer */
+        footer { border-top: 1px solid var(--border); padding: 32px 24px; background: var(--bg-secondary); }
+        .footer-inner { max-width: 1200px; margin: 0 auto; }
+        .footer-grid { display: grid; gap: 24px; margin-bottom: 32px; }
+        @media (min-width: 768px) { .footer-grid { grid-template-columns: 2fr repeat(3, 1fr); } }
+        .footer-brand p { color: var(--text-secondary); font-size: 0.9rem; margin-top: 8px; max-width: 300px; }
+        .footer-col h4 { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+        .footer-col a { display: block; color: var(--text-secondary); text-decoration: none; padding: 6px 0; font-size: 0.9rem; transition: var(--transition); }
+        .footer-col a:hover { color: var(--accent); }
+        .footer-bottom { padding-top: 24px; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; color: var(--text-muted); font-size: 0.85rem; }
+        .social-links { display: flex; gap: 16px; }
+        .social-links a { color: var(--text-muted); transition: var(--transition); }
+        .social-links a:hover { color: var(--accent); }
+
+        /* Loading overlay */
+        .loading-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+            z-index: 200; display: flex; align-items: center; justify-content: center;
+            opacity: 0; visibility: hidden; transition: all 0.3s ease;
+        }
+        .loading-overlay.open { opacity: 1; visibility: visible; }
+        .loading-content { background: var(--card-bg); padding: 40px; border-radius: var(--radius); text-align: center; border: 1px solid var(--border); }
+        .spinner { width: 48px; height: 48px; border: 4px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Toast notifications */
+        .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 300; display: flex; flex-direction: column; gap: 12px; }
+        .toast { background: var(--card-bg); border: 1px solid var(--border); padding: 14px 20px; border-radius: var(--radius); box-shadow: var(--shadow-lg); display: flex; align-items: center; gap: 12px; min-width: 280px; max-width: 400px; animation: slideIn 0.3s ease; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .toast.success { border-left: 4px solid var(--accent); }
+        .toast.error { border-left: 4px solid #ef4444; }
+        .toast-icon { flex-shrink: 0; }
+        .toast-message { flex: 1; font-size: 0.9rem; color: var(--text-primary); }
+        .toast-close { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; }
+
+        /* Accessibility */
+        @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+        :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    </style>
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <header>
+        <div class="header-inner">
+            <a href="/" class="logo" aria-label="TokenSaver Home">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <rect x="3" y="3" width="18" height="18" rx="3"/>
+                    <path d="M9 9h6M9 12h6M9 15h4"/>
                 </svg>
-                <div class="progress-text" id="progressPercent">0%</div>
-            </div>
-            <p class="progress-subtext" id="progressText">Rendering...</p>
-        </div>
+                TokenSaver
+            </a>
 
-        <div class="results hidden" id="results">
-            <div class="results-header">
-                <h2>Conversion Results</h2>
-                <span class="savings-badge" id="savingsBadge"></span>
+            <nav class="desktop-nav" aria-label="Main navigation">
+                <a href="#features" class="nav-link">Features</a>
+                <a href="#api" class="nav-link">API</a>
+                <a href="#pricing" class="nav-link">Pricing</a>
+                <a href="https://github.com/lokeshpapana/tokensaver" target="_blank" rel="noopener" class="nav-link">GitHub</a>
+            </nav>
+
+            <div class="header-actions">
+                <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark/light mode" title="Toggle theme">
+                    <svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
+                        <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                    </svg>
+                    <svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                    </svg>
+                </button>
+
+                <a href="#signup" class="btn btn-secondary d-none d-md-inline-flex">Sign Up</a>
+                <a href="#login" class="btn btn-primary d-none d-md-inline-flex">Log In</a>
+
+                <button class="menu-toggle" id="menuToggle" aria-label="Open menu" aria-expanded="false">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24">
+                        <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+                    </svg>
+                </button>
             </div>
-            <div id="recommendation" class="recommendation-box"></div>
-            <div class="token-comparison">
-                <div class="token-box before">
-                    <div class="label">Text Tokens (Original)</div>
-                    <div class="value" id="textTokens">0</div>
+        </div>
+    </header>
+
+    <!-- Mobile Drawer -->
+    <div class="drawer-overlay" id="drawerOverlay" aria-hidden="true"></div>
+    <aside class="mobile-drawer" id="mobileDrawer" aria-label="Mobile menu">
+        <div class="drawer-header">
+            <button class="drawer-close" id="drawerClose" aria-label="Close menu">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+        <nav class="mobile-nav" aria-label="Mobile navigation">
+            <a href="#features" class="nav-link">Features</a>
+            <a href="#api" class="nav-link">API</a>
+            <a href="#pricing" class="nav-link">Pricing</a>
+            <a href="https://github.com/lokeshpapana/tokensaver" target="_blank" rel="noopener" class="nav-link">GitHub</a>
+            <div style="height: 1px; background: var(--border); margin: 16px 0;"></div>
+            <a href="#signup" class="btn btn-secondary" style="text-align:center;">Sign Up</a>
+            <a href="#login" class="btn btn-primary" style="text-align:center;">Log In</a>
+        </nav>
+    </aside>
+
+    <main id="main-content">
+        <!-- Hero -->
+        <section class="hero" aria-labelledby="hero-title">
+            <span class="hero-badge">Free • No Login Required • 89% Token Savings</span>
+<h1 id="hero-title">Convert Text to Dense PNG Images</h1>
+            <p>Slash LLM token costs by up to 89%. Paste text or upload files — get dense PNGs optimized for vision models.</p>
+</section>
+
+        <!-- Tool Card -->
+        <section class="tool-card" aria-labelledby="tool-title">
+            <div class="tool-header">
+                <h2 id="tool-title" class="tool-title">Text to PNG Converter</h2>
+                <div class="tool-badges">
+                    <span class="badge badge-free">Free</span>
+                    <span class="badge badge-pro">Pro: 50MB files</span>
                 </div>
-                <div class="arrow">&#10132;</div>
-                <div class="token-box after">
-                    <div class="label">Image Tokens (Converted)</div>
-                    <div class="value" id="imageTokens">0</div>
+            </div>
+
+            <div class="tool-body">
+                <div class="text-areas">
+                    <!-- Input Area -->
+                    <div class="text-area-wrapper input-area">
+                        <div class="area-header">
+                            <span class="area-label">Input Text</span>
+                            <span class="word-count" id="inputCount">0 words, 0 chars</span>
+                        </div>
+                        <div class="textarea-container">
+                            <textarea id="inputText" placeholder="Paste your text, code, or documentation here..." aria-label="Input text to convert" spellcheck="false"></textarea>
+                        </div>
+                        <div class="textarea-actions">
+                            <label class="btn btn-secondary btn-icon" for="fileInput">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+                                <span>Upload File</span>
+                            </label>
+                            <input type="file" id="fileInput" class="file-input" accept=".txt,.py,.js,.ts,.json,.md,.html,.css,.xml,.yaml,.pdf,.docx" aria-label="Upload file">
+                            <button class="btn btn-secondary btn-icon" id="clearInput" aria-label="Clear input">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                <span>Clear</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Output Area -->
+                    <div class="text-area-wrapper output-area">
+                        <div class="area-header">
+                            <span class="area-label">Output Image (Base64 PNG)</span>
+                            <span class="word-count" id="outputInfo">Ready to convert</span>
+                        </div>
+                        <div class="textarea-container">
+                            <textarea id="outputText" readonly placeholder="Your dense PNG will appear here as base64..." aria-label="Output base64 PNG" spellcheck="false"></textarea>
+                        </div>
+                        <div class="textarea-actions" style="justify-content: flex-end;">
+                            <button class="btn btn-secondary btn-icon" id="copyOutput" aria-label="Copy base64 to clipboard">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                <span>Copy Base64</span>
+                            </button>
+                            <button class="btn btn-primary btn-icon" id="downloadPng" aria-label="Download as PNG file">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                <span>Download PNG</span>
+                            </button>
+                            <button class="btn btn-secondary btn-icon" id="downloadZip" aria-label="Download as ZIP">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                <span>Download ZIP</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Center Actions -->
+                <div class="center-actions">
+                    <button class="btn btn-primary" id="convertBtn" style="padding: 14px 32px; font-size: 1rem;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                        Convert to PNG
+                    </button>
+                    <button class="btn btn-secondary" id="estimateBtn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                        Estimate Tokens
+                    </button>
+                    <button class="btn btn-secondary" id="checkAiBtn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                        Check AI Score
+                    </button>
+                </div>
+
+                <!-- Stats Bar -->
+                <div class="stats-bar" role="status" aria-live="polite">
+                    <div class="stat-item">
+                        <span class="stat-label">Text Tokens</span>
+                        <span class="stat-value" id="statTextTokens">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Image Tokens</span>
+                        <span class="stat-value" id="statImageTokens">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Savings</span>
+                        <span class="stat-value savings" id="statSavings">0%</span>
+                    </div>
+                    <div class="stat-item" style="margin-left: auto;">
+                        <span class="stat-label">Compression</span>
+                        <span class="stat-value" id="statRatio">0x</span>
+                    </div>
+                    <div class="stat-item">
+                        <div class="progress-ring" id="progressRing" role="img" aria-label="Compression progress">
+                            <svg><circle class="progress-ring__bg" cx="24" cy="24" r="22"/><circle class="progress-ring__circle" cx="24" cy="24" r="22"/></svg>
+                            <span class="progress-ring__text" id="progressText">0%</span>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div id="pagePreview"></div>
-            <div class="results-actions">
-                <button class="btn btn-primary" id="downloadAllBtn">Download All as ZIP</button>
+        </section>
+
+        <!-- Features -->
+        <section id="features" class="features" aria-labelledby="features-title">
+            <h2 id="features-title" style="display:none;">Features</h2>
+            <article class="feature-card">
+                <div class="feature-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
+                </div>
+                <h3>89% Token Reduction</h3>
+                <p>Dense PNG encoding fits 10x more text per vision token. Save dramatically on LLM API costs.</p>
+            </article>
+            <article class="feature-card">
+                <div class="feature-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+                <h3>Multi-Format Support</h3>
+                <p>Upload PDF, DOCX, code files, or paste directly. Supports 40+ file types including .py, .js, .pdf, .docx.</p>
+            </article>
+            <article class="feature-card">
+                <div class="feature-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
+                </div>
+                <h3>Code Optimization</h3>
+                <p>Auto-removes blank lines, reduces Python indentation 4→2 spaces, compacts JS braces — before rendering.</p>
+            </article>
+        </section>
+
+        <!-- API Section -->
+        <section id="api" class="tool-card" style="margin-top: 32px;">
+            <div class="tool-header"><h2 class="tool-title">Developer API</h2></div>
+            <div class="tool-body">
+                <p style="color: var(--text-secondary); margin-bottom: 16px;">Integrate TokenSaver into your workflow with our REST API.</p>
+                <div style="background: var(--input-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; overflow-x: auto; white-space: pre;">
+<span style="color: var(--text-muted);"># Convert file</span>
+curl -X POST https://api.tokensaver.dev/api/convert \
+  -F "file=@code.py" \
+  -F "mode=dense"
+
+<span style="color: var(--text-muted);"># Convert text</span>
+curl -X POST https://api.tokensaver.dev/api/convert-text \
+  -H "Content-Type: application/json" \
+  -d '{{"text": "your code", "mode": "dense"}}'
+
+<span style="color: var(--text-muted);"># Batch convert (returns ZIP)</span>
+curl -X POST "https://api.tokensaver.dev/api/convert-batch?mode=dense" \
+  -F "files=@file1.py" -F "files=@file2.js" -o batch.zip
+                </div>
+                <div style="margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap;">
+                    <a href="https://github.com/lokeshpapana/tokensaver" target="_blank" rel="noopener" class="btn btn-secondary">GitHub Repo</a>
+                    <a href="#docs" class="btn btn-secondary">API Docs</a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="footer-inner">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <a href="/" class="logo" style="font-size: 1.25rem;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
+                        TokenSaver
+                    </a>
+                    <p>Convert text to dense PNG images. Cut LLM token costs by up to 89%.</p>
+                </div>
+                <div class="footer-col">
+                    <h4>Product</h4>
+                    <a href="#features">Features</a>
+                    <a href="#api">API</a>
+                    <a href="#pricing">Pricing</a>
+                    <a href="https://github.com/lokeshpapana/tokensaver" target="_blank" rel="noopener">GitHub</a>
+                </div>
+                <div class="footer-col">
+                    <h4>Tools</h4>
+                    <a href="#">Text to PNG</a>
+                    <a href="#">Batch Convert</a>
+                    <a href="#">API Keys</a>
+                    <a href="#">History</a>
+                </div>
+                <div class="footer-col">
+                    <h4>Company</h4>
+                    <a href="#">About</a>
+                    <a href="#">Blog</a>
+                    <a href="#">Contact</a>
+                    <a href="#">Privacy</a>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <span>© 2024 TokenSaver. Open source under MIT.</span>
+                <div class="social-links">
+                    <a href="https://github.com/lokeshpapana/tokensaver" target="_blank" rel="noopener" aria-label="GitHub">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.305-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.81 1.102.81 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+                    </a>
+                    <a href="https://twitter.com" target="_blank" rel="noopener" aria-label="Twitter">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2c9 5 20 0 20-12.5a4.5 4.5 0 00-.08-.83A7.72 7.72 0 0023 3z"/></svg>
+                    </a>
+                </div>
             </div>
         </div>
+    </footer>
+</body>
 
-        <div class="api-section">
-            <h2>Free API Access</h2>
-            <p class="api-desc">Use the REST API with rate limits. Sign in for higher limits.</p>
-            <div class="code-block" id="apiCodeBlock"></div>
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Converting">
+        <div class="loading-content">
+            <div class="spinner" aria-hidden="true"></div>
+            <h3 style="margin-bottom: 8px; color: var(--text-primary);">Converting to PNG...</h3>
+            <p style="color: var(--text-secondary);" id="loadingText">Processing your text</p>
         </div>
-
-        <div class="history-section">
-            <div class="history-header">
-                <h2>Conversion History</h2>
-                <button class="btn btn-secondary btn-sm" id="clearHistoryBtn">Clear History</button>
-            </div>
-            <table class="history-table">
-                <thead>
-                    <tr>
-                        <th>File</th>
-                        <th>Chars</th>
-                        <th>Text Tokens</th>
-                        <th>Image Tokens</th>
-                        <th>Savings</th>
-                        <th>Time</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="historyBody">
-                    <tr><td colspan="7" class="empty-row">No conversions yet</td></tr>
-                </tbody>
-            </table>
-        </div>
-
-        <footer>TokenSaver v2.1 - Text to Dense PNG for LLM Token Optimization</footer>
     </div>
 
-    <div class="modal-overlay hidden" id="imageModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="modalTitle">Image Preview</h3>
-                <button class="modal-close" id="modalClose">&times;</button>
-            </div>
-            <div class="modal-body">
-                <img id="modalImage" style="max-width:100%;max-height:70vh;">
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-primary" id="modalDownload">Download</button>
-                <button class="btn btn-secondary" id="modalCopy">Copy Base64</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Auth Modal -->
-    <div class="modal-overlay hidden" id="authModal">
-        <div class="modal-content auth-modal">
-            <div class="modal-header">
-                <h3 id="authModalTitle">Sign In</h3>
-                <button class="modal-close" id="authModalClose">&times;</button>
-            </div>
-            <div class="auth-form" id="authForm"></div>
-        </div>
-    </div>
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer" aria-live="polite" aria-label="Notifications"></div>
 
     <script type="module" src="/src/main.ts"></script>
-</Main>
+</html>
