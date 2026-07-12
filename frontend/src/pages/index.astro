@@ -1,0 +1,182 @@
+---
+import Main from '../layouts/Main.astro';
+---
+<Main title="TokenSaver - Cut LLM Token Costs by 89%">
+    <div class="container">
+        <header>
+            <h1>TokenSaver</h1>
+            <p>Convert text files to dense PNG images. Cut LLM token costs by up to 89%.</p>
+            <div class="auth-bar" id="authBar"></div>
+        </header>
+
+        <div class="stats-bar">
+            <div class="stat-item">
+                <div class="stat-value" id="totalConversions">0</div>
+                <div class="stat-label">Conversions</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="totalSaved">0</div>
+                <div class="stat-label">Tokens Saved</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="avgSavings">89%</div>
+                <div class="stat-label">Avg Savings</div>
+            </div>
+        </div>
+
+        <div class="upload-zone" id="dropZone">
+            <div class="icon">&#128196;</div>
+            <h3>Drop files here or click to browse</h3>
+            <p>Supports: .txt .py .js .ts .json .md .html .css .xml .yaml .pdf .docx and more</p>
+            <p class="upload-limit">Max 10MB per file, up to 20 files at once</p>
+            <input type="file" id="fileInput" multiple style="display:none"
+                accept=".txt,.py,.js,.ts,.jsx,.tsx,.json,.jsonl,.xml,.html,.htm,.css,.md,.yaml,.yml,.toml,.ini,.cfg,.csv,.tsv,.log,.sql,.sh,.bash,.bat,.ps1,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.cs,.php,.swift,.kt,.r,.scala,.dart,.vue,.svelte,.env,.gitignore,.dockerfile,.makefile,.cmake,.gradle,.lock,.rst,.adoc,.tex,.bib,.pdf,.docx">
+        </div>
+
+        <div class="or-divider"><span>OR</span></div>
+
+        <div class="text-section">
+            <textarea id="textInput" placeholder="Paste your text here..."></textarea>
+            <div class="estimate-box" id="estimateBox">
+                <div class="estimate-row">
+                    <span class="estimate-label">Characters:</span>
+                    <span class="estimate-value" id="estChars">0</span>
+                </div>
+                <div class="estimate-row">
+                    <span class="estimate-label">Text Tokens:</span>
+                    <span class="estimate-value" id="estTextTokens">0</span>
+                </div>
+                <div class="estimate-row">
+                    <span class="estimate-label">Est. Image Tokens:</span>
+                    <span class="estimate-value" id="estImageTokens">0</span>
+                </div>
+                <div class="estimate-row">
+                    <span class="estimate-label">Est. Savings:</span>
+                    <span class="estimate-value" id="estSavings">0%</span>
+                </div>
+                <div class="estimate-worse hidden" id="estWorse">
+                    WARNING: Image will cost MORE tokens. Send as text instead.
+                </div>
+            </div>
+            <div class="text-actions">
+                <span id="charCount">0 characters</span>
+                <button class="btn btn-primary" id="convertTextBtn" disabled>Convert Text to PNG</button>
+            </div>
+        </div>
+
+        <div class="file-list hidden" id="fileList">
+            <div id="fileItems"></div>
+        </div>
+
+        <div class="controls">
+            <label class="checkbox-label">
+                Mode:
+                <select id="modeSelect">
+                    <option value="readable">Readable (11px)</option>
+                    <option value="standard" selected>Standard (10px)</option>
+                    <option value="dense">Dense (8px, max compression)</option>
+                </select>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" id="lineNumbers"> Show line numbers
+            </label>
+            <button class="btn btn-primary" id="convertBtn" disabled>Convert to PNG</button>
+            <button class="btn btn-secondary hidden" id="clearBtn">Clear All</button>
+        </div>
+
+        <div class="loading hidden" id="loading">
+            <div class="progress-ring">
+                <svg width="120" height="120">
+                    <circle class="progress-ring__bg" cx="60" cy="60" r="54" stroke="#21262d" stroke-width="4" fill="none"/>
+                    <circle class="progress-ring__circle" id="progressCircle" cx="60" cy="60" r="54"
+                        stroke-dasharray="339.292" stroke-dashoffset="339.292"/>
+                </svg>
+                <div class="progress-text" id="progressPercent">0%</div>
+            </div>
+            <p class="progress-subtext" id="progressText">Rendering...</p>
+        </div>
+
+        <div class="results hidden" id="results">
+            <div class="results-header">
+                <h2>Conversion Results</h2>
+                <span class="savings-badge" id="savingsBadge"></span>
+            </div>
+            <div id="recommendation" class="recommendation-box"></div>
+            <div class="token-comparison">
+                <div class="token-box before">
+                    <div class="label">Text Tokens (Original)</div>
+                    <div class="value" id="textTokens">0</div>
+                </div>
+                <div class="arrow">&#10132;</div>
+                <div class="token-box after">
+                    <div class="label">Image Tokens (Converted)</div>
+                    <div class="value" id="imageTokens">0</div>
+                </div>
+            </div>
+            <div id="pagePreview"></div>
+            <div class="results-actions">
+                <button class="btn btn-primary" id="downloadAllBtn">Download All as ZIP</button>
+            </div>
+        </div>
+
+        <div class="api-section">
+            <h2>Free API Access</h2>
+            <p class="api-desc">Use the REST API with rate limits. Sign in for higher limits.</p>
+            <div class="code-block" id="apiCodeBlock"></div>
+        </div>
+
+        <div class="history-section">
+            <div class="history-header">
+                <h2>Conversion History</h2>
+                <button class="btn btn-secondary btn-sm" id="clearHistoryBtn">Clear History</button>
+            </div>
+            <table class="history-table">
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>Chars</th>
+                        <th>Text Tokens</th>
+                        <th>Image Tokens</th>
+                        <th>Savings</th>
+                        <th>Time</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="historyBody">
+                    <tr><td colspan="7" class="empty-row">No conversions yet</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <footer>TokenSaver v2.1 - Text to Dense PNG for LLM Token Optimization</footer>
+    </div>
+
+    <div class="modal-overlay hidden" id="imageModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Image Preview</h3>
+                <button class="modal-close" id="modalClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <img id="modalImage" style="max-width:100%;max-height:70vh;">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-primary" id="modalDownload">Download</button>
+                <button class="btn btn-secondary" id="modalCopy">Copy Base64</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auth Modal -->
+    <div class="modal-overlay hidden" id="authModal">
+        <div class="modal-content auth-modal">
+            <div class="modal-header">
+                <h3 id="authModalTitle">Sign In</h3>
+                <button class="modal-close" id="authModalClose">&times;</button>
+            </div>
+            <div class="auth-form" id="authForm"></div>
+        </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+</Main>

@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: tokensaver
+    runtime: python
+    buildCommand: |
+      cd frontend && npm install && npm run build
+      cd ../backend && pip install -r requirements.txt
+    startCommand: cd backend && gunicorn app:app --workers 4 --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: NODE_VERSION
+        value: "18"
+      - key: FIREBASE_DEV_MODE
+        value: "false"
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false

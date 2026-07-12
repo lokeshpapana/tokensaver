@@ -1,0 +1,11 @@
+{
+  "bfded7c5f82d9a6e95882d64fef80b7dd635cf11f9dccce40a799618d7c0f612": {
+    "key_hash": "bfded7c5f82d9a6e95882d64fef80b7dd635cf11f9dccce40a799618d7c0f612",
+    "tier": "free",
+    "created_at": "2026-07-12T03:54:41.842095+00:00",
+    "last_used": null,
+    "total_requests": 0,
+    "is_active": true,
+    "description": "test-key"
+  }
+}
