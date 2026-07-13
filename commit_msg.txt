@@ -1,1 +1,1 @@
-UI redesign with dark/light mode  
+Update Firebase config with real credentials  
