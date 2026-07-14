@@ -664,6 +664,29 @@ async def get_stats(uid: Optional[str]) -> Dict:
 # Dev Mode Mock Implementations
 # ============================================================
 
+# Real implementation (always available)
+async def init_default_tiers():
+    """Initialize default tier configurations in Firestore."""
+    try:
+        from firebase_admin import firestore
+        db = firestore.client()
+        for tier_name, config in DEFAULT_TIER_CONFIG.items():
+            doc_ref = db.collection(TIERS_COLLECTION).document(tier_name)
+            doc = doc_ref.get()
+            if not doc.exists:
+                doc_ref.set({
+                    **config,
+                    "name": tier_name,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                })
+    except Exception as e:
+        logger.warning(f"Failed to initialize default tiers: {e}")
+
+
+# ============================================================
+# Dev Mode Mock Implementations
+# ============================================================
+
 if DEV_MODE:
     # In-memory storage for development
     _dev_users: Dict[str, Dict] = {}
@@ -896,9 +919,6 @@ if DEV_MODE:
             "total_text_tokens_saved": max(0, total_saved),
             "avg_savings_percent": round(total_savings / total, 1) if total > 0 else 0,
         }
-    
-    async def _mock_init_default_tiers():
-        pass
     
     # Mock verify_firebase_token for dev mode
     async def _mock_verify_firebase_token(request: Request, credentials: Optional[HTTPAuthorizationCredentials] = None) -> Dict:
