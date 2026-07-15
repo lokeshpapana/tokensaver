@@ -3,8 +3,9 @@ import json
 import time
 import hashlib
 import logging
+import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Tuple, List
+from typing import Optional, Dict, Tuple, List, Any, Callable
 from dataclasses import dataclass, field, asdict
 from functools import lru_cache
 
@@ -15,6 +16,39 @@ import firebase_admin
 from firebase_admin import credentials, auth, firestore
 
 logger = logging.getLogger(__name__)
+
+logger = logging.getLogger(__name__)
+
+# Timeout configuration
+FIRESTORE_TIMEOUT = 5.0  # seconds
+
+
+async def with_timeout(coro: Any, timeout: float = FIRESTORE_TIMEOUT) -> Any:
+    """Execute a coroutine with a timeout, with fallback."""
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.warning(f"Firestore operation timed out after {timeout}s")
+        raise asyncio.TimeoutError(f"Operation timed out after {timeout}s")
+    except Exception as e:
+        logger.warning(f"Firestore operation failed: {e}")
+        raise
+
+
+async def run_in_thread(coro: Any, timeout: float = FIRESTORE_TIMEOUT) -> Any:
+    """Run a sync function in a thread pool with timeout."""
+    try:
+        return await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(None, coro),
+            timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        logger.warning(f"Firestore operation timed out after {timeout}s")
+        raise asyncio.TimeoutError(f"Operation timed out after {timeout}s")
+    except Exception as e:
+        logger.warning(f"Firestore operation failed: {e}")
+        raise
+
 
 # ============================================================
 # Firebase Initialization
@@ -200,15 +234,19 @@ async def verify_firebase_token(
 
 
 async def _get_user_tier(uid: str) -> str:
-    """Fetch user's tier from Firestore."""
-    try:
+    """Fetch user's tier from Firestore with timeout."""
+    async def _get():
         doc = db.collection(USERS_COLLECTION).document(uid).get()
         if doc.exists:
             data = doc.to_dict()
             return data.get("tier", "free")
+        return "free"
+    
+    try:
+        return await run_in_thread(_get, timeout=FIRESTORE_TIMEOUT)
     except Exception as e:
         logger.warning(f"Failed to fetch tier for {uid}: {e}")
-    return "free"
+        return "free"
 
 
 # ============================================================
@@ -217,32 +255,43 @@ async def _get_user_tier(uid: str) -> str:
 
 async def get_or_create_user(uid: str, email: Optional[str] = None, display_name: Optional[str] = None) -> User:
     """Get existing user or create new one with default tier."""
-    user_ref = db.collection(USERS_COLLECTION).document(uid)
-    doc = user_ref.get()
-    
-    if doc.exists:
-        user = User.from_doc(doc)
-        # Update last_login
-        user_ref.update({"last_login": datetime.now(timezone.utc).isoformat()})
+    async def _get_or_create():
+        user_ref = db.collection(USERS_COLLECTION).document(uid)
+        doc = user_ref.get()
+        
+        if doc.exists:
+            user = User.from_doc(doc)
+            # Update last_login
+            user_ref.update({"last_login": datetime.now(timezone.utc).isoformat()})
+            return user
+        
+        # Create new user
+        user = User(
+            uid=uid,
+            email=email,
+            display_name=display_name,
+            email_verified=False,
+            tier="free",
+        )
+        user_ref.set(user.to_dict())
         return user
     
-    # Create new user
-    user = User(
-        uid=uid,
-        email=email,
-        display_name=display_name,
-        email_verified=False,
-        tier="free",
-    )
-    user_ref.set(user.to_dict())
-    return user
+    try:
+        return await run_in_thread(_get_or_create, timeout=FIRESTORE_TIMEOUT)
+    except Exception as e:
+        logger.error(f"Failed to get/create user {uid}: {e}")
+        # Return a default user as fallback
+        return User(uid=uid, email=email, display_name=display_name, tier="free")
 
 
 async def update_user_tier(uid: str, new_tier: str) -> bool:
     """Update user's tier (admin only)."""
-    try:
+    async def _update():
         db.collection(USERS_COLLECTION).document(uid).update({"tier": new_tier})
         return True
+    
+    try:
+        return await run_in_thread(_update, timeout=FIRESTORE_TIMEOUT)
     except Exception as e:
         logger.error(f"Failed to update tier for {uid}: {e}")
         return False
@@ -265,42 +314,56 @@ class FirestoreAPIKeyManager:
     
     def generate_key(self, uid: str, tier: str = "free", description: str = "") -> str:
         """Generate new API key for user."""
-        raw_key = f"tsk_{hashlib.sha256(os.urandom(32)).hexdigest()[:32]}"
-        key_hash = self._hash_key(raw_key)
-        prefix = self._key_prefix(raw_key)
+        async def _generate():
+            raw_key = f"tsk_{hashlib.sha256(os.urandom(32)).hexdigest()[:32]}"
+            key_hash = self._hash_key(raw_key)
+            prefix = self._key_prefix(raw_key)
+            
+            api_key = APIKey(
+                key_hash=key_hash,
+                uid=uid,
+                tier=tier,
+                created_at=datetime.now(timezone.utc).isoformat(),
+                description=description,
+                prefix=prefix,
+            )
+            
+            db.collection(API_KEYS_COLLECTION).document(key_hash).set(api_key.to_dict())
+            return raw_key
         
-        api_key = APIKey(
-            key_hash=key_hash,
-            uid=uid,
-            tier=tier,
-            created_at=datetime.now(timezone.utc).isoformat(),
-            description=description,
-            prefix=prefix,
-        )
-        
-        db.collection(API_KEYS_COLLECTION).document(key_hash).set(api_key.to_dict())
-        return raw_key
+        try:
+            return await run_in_thread(_generate, timeout=FIRESTORE_TIMEOUT)
+        except Exception as e:
+            logger.error(f"Failed to generate API key for {uid}: {e}")
+            raise HTTPException(status_code=500, detail="Failed to generate API key")
     
     def validate_key(self, raw_key: str) -> Optional[APIKey]:
         """Validate API key and update usage stats."""
-        key_hash = self._hash_key(raw_key)
-        doc = db.collection(API_KEYS_COLLECTION).document(key_hash).get()
+        async def _validate():
+            key_hash = self._hash_key(raw_key)
+            doc = db.collection(API_KEYS_COLLECTION).document(key_hash).get()
+            
+            if not doc.exists:
+                return None
+            
+            data = doc.to_dict()
+            if not data.get("is_active", False):
+                return None
+            
+            # Update last_used and increment request count
+            doc.reference.update({
+                "last_used": datetime.now(timezone.utc).isoformat(),
+                "total_requests": firestore.Increment(1),
+            })
+            
+            data["key_hash"] = key_hash
+            return APIKey(**data)
         
-        if not doc.exists:
+        try:
+            return await run_in_thread(_validate, timeout=FIRESTORE_TIMEOUT)
+        except Exception as e:
+            logger.warning(f"API key validation failed: {e}")
             return None
-        
-        data = doc.to_dict()
-        if not data.get("is_active", False):
-            return None
-        
-        # Update last_used and increment request count
-        doc.reference.update({
-            "last_used": datetime.now(timezone.utc).isoformat(),
-            "total_requests": firestore.Increment(1),
-        })
-        
-        data["key_hash"] = key_hash
-        return APIKey(**data)
     
     def revoke_key(self, raw_key: str) -> bool:
         """Revoke an API key."""
@@ -365,7 +428,7 @@ class FirestoreRateLimiter:
         cutoff = now - window
         reset_time = int((now // window + 1) * window)
         
-        try:
+try:
             # Use transaction for atomic read-increment-write
             @firestore.transactional
             def increment_in_transaction(transaction):
@@ -388,7 +451,10 @@ class FirestoreRateLimiter:
                 return new_count
             
             transaction = db.transaction()
-            current_count = increment_in_transaction(transaction)
+            current_count = await run_in_thread(
+                lambda: increment_in_transaction(transaction),
+                timeout=FIRESTORE_TIMEOUT
+            )
             
             # Update local cache
             self._local_cache[window_key] = (now, current_count)
@@ -597,43 +663,58 @@ async def save_to_history(
     pages: int,
 ) -> str:
     """Save conversion history to Firestore (user-scoped or anonymous)."""
-    if uid:
-        # User-scoped history
-        user_ref = db.collection(USERS_COLLECTION).document(uid)
-        history_ref = user_ref.collection(HISTORY_COLLECTION).document()
-    else:
-        # Anonymous - use shared collection with IP hash
-        ip_hash = hashlib.sha256(f"anon_{time.time()}".encode()).hexdigest()[:16]
-        history_ref = db.collection("anonymous_history").document(ip_hash)
+    async def _save():
+        if uid:
+            # User-scoped history
+            user_ref = db.collection(USERS_COLLECTION).document(uid)
+            history_ref = user_ref.collection(HISTORY_COLLECTION).document()
+        else:
+            # Anonymous - use shared collection with IP hash
+            ip_hash = hashlib.sha256(f"anon_{time.time()}".encode()).hexdigest()[:16]
+            history_ref = db.collection("anonymous_history").document(ip_hash)
+        
+        record = HistoryRecord(
+            id=history_ref.id,
+            uid=uid or "anonymous",
+            filename=filename,
+            file_type=file_type,
+            char_count=char_count,
+            text_tokens=text_tokens,
+            image_tokens=image_tokens,
+            savings_percent=savings_percent,
+            pages=pages,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+        
+        history_ref.set(record.to_dict())
+        return history_ref.id
     
-    record = HistoryRecord(
-        id=history_ref.id,
-        uid=uid or "anonymous",
-        filename=filename,
-        file_type=file_type,
-        char_count=char_count,
-        text_tokens=text_tokens,
-        image_tokens=image_tokens,
-        savings_percent=savings_percent,
-        pages=pages,
-        timestamp=datetime.now(timezone.utc).isoformat(),
-    )
-    
-    history_ref.set(record.to_dict())
-    return history_ref.id
+    try:
+        return await run_in_thread(_save, timeout=FIRESTORE_TIMEOUT)
+    except Exception as e:
+        logger.warning(f"Firestore save_to_history failed: {e}")
+        # Return a local ID as fallback
+        return f"local_{int(time.time() * 1000)}"
 
 
 async def load_history(uid: Optional[str], limit: int = 50) -> List[HistoryRecord]:
     """Load conversion history for user or anonymous."""
-    if uid:
-        query = db.collection(USERS_COLLECTION).document(uid).collection(HISTORY_COLLECTION)
-    else:
-        # For anonymous, we don't have a good way to query by user
-        # This would need a different approach (e.g., session-based)
-        query = db.collection("anonymous_history")
+    async def _load():
+        if uid:
+            query = db.collection(USERS_COLLECTION).document(uid).collection(HISTORY_COLLECTION)
+        else:
+            # For anonymous, we don't have a good way to query by user
+            # This would need a different approach (e.g., session-based)
+            query = db.collection("anonymous_history")
+        
+        docs = query.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(limit).stream()
+        return [HistoryRecord.from_doc(doc) for doc in docs]
     
-    docs = query.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(limit).stream()
-    return [HistoryRecord.from_doc(doc) for doc in docs]
+    try:
+        return await run_in_thread(_load, timeout=FIRESTORE_TIMEOUT)
+    except Exception as e:
+        logger.warning(f"Firestore load_history failed: {e}")
+        return []
 
 
 async def get_stats(uid: Optional[str]) -> Dict:
@@ -641,30 +722,49 @@ async def get_stats(uid: Optional[str]) -> Dict:
     if not uid:
         return {"total_conversions": 0, "total_text_tokens_saved": 0, "avg_savings_percent": 0}
     
-    docs = db.collection(USERS_COLLECTION).document(uid).collection(HISTORY_COLLECTION).stream()
+    async def _get_stats():
+        docs = db.collection(USERS_COLLECTION).document(uid).collection(HISTORY_COLLECTION).stream()
+        
+        total = 0
+        total_saved = 0
+        total_savings = 0.0
+        
+        for doc in docs:
+            data = doc.to_dict()
+            total += 1
+            total_saved += data.get("text_tokens", 0) - data.get("image_tokens", 0)
+            total_savings += data.get("savings_percent", 0)
+        
+        return {
+            "total_conversions": total,
+            "total_text_tokens_saved": max(0, total_saved),
+            "avg_savings_percent": round(total_savings / total, 1) if total > 0 else 0,
+        }
     
-    total = 0
-    total_saved = 0
-    total_savings = 0.0
-    
-    for doc in docs:
-        data = doc.to_dict()
-        total += 1
-        total_saved += data.get("text_tokens", 0) - data.get("image_tokens", 0)
-        total_savings += data.get("savings_percent", 0)
-    
-    return {
-        "total_conversions": total,
-        "total_text_tokens_saved": max(0, total_saved),
-        "avg_savings_percent": round(total_savings / total, 1) if total > 0 else 0,
-    }
+    try:
+        return await run_in_thread(_get_stats, timeout=FIRESTORE_TIMEOUT)
+    except Exception as e:
+        logger.warning(f"Firestore get_stats failed: {e}")
+        return {"total_conversions": 0, "total_text_tokens_saved": 0, "avg_savings_percent": 0}
 
 
-# ============================================================
-# Dev Mode Mock Implementations
-# ============================================================
+# Add timeout constant near the top
+FIRESTORE_TIMEOUT = 5.0  # seconds
 
-# Real implementation (always available)
+# Helper function to run blocking Firestore calls with timeout
+async def run_in_thread(func, timeout: float = FIRESTORE_TIMEOUT):
+    """Run a blocking function in a thread pool with timeout."""
+    loop = asyncio.get_event_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(None, func),
+            timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        raise asyncio.TimeoutError(f"Firestore operation timed out after {FIRESTORE_TIMEOUT}s")
+    except Exception as e:
+        logger.warning(f"Firestore operation failed: {e}")
+        raise
 async def init_default_tiers():
     """Initialize default tier configurations in Firestore."""
     try:
