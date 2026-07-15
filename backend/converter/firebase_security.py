@@ -57,33 +57,48 @@ async def run_in_thread(coro: Any, timeout: float = FIRESTORE_TIMEOUT) -> Any:
 # Development mode flag - set to True for local development without Firebase
 DEV_MODE = os.getenv("FIREBASE_DEV_MODE", "true").lower() == "true"
 
-def _initialize_firebase() -> None:
+# Tracks whether Firebase was successfully initialized at runtime
+FIREBASE_AVAILABLE = False
+
+
+def _initialize_firebase() -> bool:
     if DEV_MODE:
         logger.info("Running in DEV_MODE - Firebase initialization skipped")
-        return
-        
-    if not firebase_admin._apps:
+        return False
+
+    if firebase_admin._apps:
+        return True
+
+    try:
         cred_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH")
         cred_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
-        
+
         if cred_json:
-            cred_dict = json.loads(cred_json)
-            cred = credentials.Certificate(cred_dict)
+            cred = credentials.Certificate(json.loads(cred_json))
         elif cred_path and os.path.exists(cred_path):
             cred = credentials.Certificate(cred_path)
         else:
             # Try default credentials (works on Cloud Run, Render with service account)
             cred = credentials.ApplicationDefault()
-        
+
         firebase_admin.initialize_app(cred)
+        return True
+    except Exception as e:
+        logger.warning(f"Firebase initialization failed, falling back to offline mode: {e}")
+        return False
 
-_initialize_firebase()
 
-if not DEV_MODE:
+FIREBASE_AVAILABLE = _initialize_firebase()
+
+# When Firebase is unavailable (or DEV_MODE is on), fall back to in-memory implementations
+# so the core conversion feature works without any credentials.
+OFFLINE_MODE = DEV_MODE or not FIREBASE_AVAILABLE
+
+if not OFFLINE_MODE:
     db = firestore.client()
     auth_client = auth
 else:
-    # Mock clients for development
+    # Mock clients for development / offline mode
     db = None
     auth_client = None
 
@@ -202,9 +217,13 @@ async def verify_firebase_token(
     # Allow anonymous access - return empty claims
     if not credentials:
         return {"uid": None, "email": None, "tier": "anonymous", "anonymous": True}
-    
+
+    # If Firebase auth is not available (offline mode), treat any token as anonymous
+    if auth_client is None:
+        return {"uid": None, "email": None, "tier": "anonymous", "anonymous": True}
+
     token = credentials.credentials
-    
+
     try:
         decoded_token = auth_client.verify_id_token(token, check_revoked=True)
         uid = decoded_token.get("uid")
@@ -570,8 +589,6 @@ class SecurityMiddleware:
 # FastAPI Dependencies
 # ============================================================
 
-security_middleware = SecurityMiddleware()
-
 
 async def get_user_context(
     request: Request,
@@ -784,11 +801,11 @@ async def init_default_tiers():
 
 
 # ============================================================
-# Dev Mode Mock Implementations
+# Offline / Dev Mode Mock Implementations
 # ============================================================
 
-if DEV_MODE:
-    # In-memory storage for development
+if OFFLINE_MODE:
+    # In-memory storage for offline / development mode
     _dev_users: Dict[str, Dict] = {}
     _dev_api_keys: Dict[str, Dict] = {}
     _dev_rate_limits: Dict[str, Tuple[float, int]] = {}
@@ -1042,5 +1059,20 @@ if DEV_MODE:
     save_to_history = _mock_save_to_history
     load_history = _mock_load_history
     get_stats = _mock_get_stats
+
+    async def _mock_init_default_tiers():
+        # No-op in offline mode - tiers are defined in DEFAULT_TIER_CONFIG
+        return
+
     init_default_tiers = _mock_init_default_tiers
     verify_firebase_token = _mock_verify_firebase_token
+
+
+# ============================================================
+# Instantiate middleware AFTER offline-mode overrides so it
+# picks up the in-memory mock implementations when Firebase
+# is unavailable. This keeps the core conversion feature
+# working with zero credentials.
+# ============================================================
+
+security_middleware = SecurityMiddleware()
