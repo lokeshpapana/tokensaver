@@ -431,7 +431,7 @@ async def revoke_api_key(
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "version": "2.1.0"}
+    return {"status": "healthy", "version": "2.1.1-debug"}
 
 
 if __name__ == "__main__":
