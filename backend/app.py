@@ -218,37 +218,41 @@ async def convert_text(
     if len(text) > 50_000_000:
         raise HTTPException(status_code=413, detail="Text too large. Maximum: 50M characters")
 
-    pages = render_text_to_pages(text, filename, mode=mode, show_line_numbers=line_numbers, optimize=optimize)
-    savings = calculate_savings(text, pages)
-    page_images_b64, _ = _build_page_response(pages, filename, savings)
+    try:
+        pages = render_text_to_pages(text, filename, mode=mode, show_line_numbers=line_numbers, optimize=optimize)
+        savings = calculate_savings(text, pages)
+        page_images_b64, _ = _build_page_response(pages, filename, savings)
 
-    await save_to_history(
-        uid=user_ctx.get("uid"),
-        original_filename=filename,
-        file_type="txt",
-        char_count=savings.chars_total,
-        text_tokens=savings.text_tokens,
-        image_tokens=savings.total_image_tokens,
-        savings_percent=savings.savings_percent,
-        num_pages=savings.pages,
-    )
+        await save_to_history(
+            uid=user_ctx.get("uid"),
+            original_filename=filename,
+            file_type="txt",
+            char_count=savings.chars_total,
+            text_tokens=savings.text_tokens,
+            image_tokens=savings.total_image_tokens,
+            savings_percent=savings.savings_percent,
+            num_pages=savings.pages,
+        )
 
-    return JSONResponse(
-        content={
-            "success": True, "filename": filename, "file_type": "txt", "mode": mode,
-            "stats": {
-                "characters": savings.chars_total, "text_tokens": savings.text_tokens,
-                "image_tokens": savings.total_image_tokens, "savings_percent": savings.savings_percent,
-                "compression_ratio": savings.compression_ratio, "pages": savings.pages,
-                "chars_per_page": savings.chars_per_page, "chars_per_token": savings.chars_per_token,
-                "text_tokens_display": format_token_count(savings.text_tokens),
-                "image_tokens_display": format_token_count(savings.total_image_tokens),
-                "recommendation": savings.recommendation,
+        return JSONResponse(
+            content={
+                "success": True, "filename": filename, "file_type": "txt", "mode": mode,
+                "stats": {
+                    "characters": savings.chars_total, "text_tokens": savings.text_tokens,
+                    "image_tokens": savings.total_image_tokens, "savings_percent": savings.savings_percent,
+                    "compression_ratio": savings.compression_ratio, "pages": savings.pages,
+                    "chars_per_page": savings.chars_per_page, "chars_per_token": savings.chars_per_token,
+                    "text_tokens_display": format_token_count(savings.text_tokens),
+                    "image_tokens_display": format_token_count(savings.total_image_tokens),
+                    "recommendation": savings.recommendation,
+                },
+                "pages": page_images_b64, "tier": user_ctx["tier"],
             },
-            "pages": page_images_b64, "tier": user_ctx["tier"],
-        },
-        headers=user_ctx["rate_limit"].headers,
-    )
+            headers=user_ctx["rate_limit"].headers,
+        )
+    except Exception as e:
+        logger.error(f"Conversion error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Conversion failed: {str(e)}")
 
 
 @app.post("/api/convert-batch")
