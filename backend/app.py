@@ -4,6 +4,7 @@ import json
 import base64
 import logging
 import tempfile
+import traceback
 import zipfile
 from pathlib import Path
 from typing import List, Optional
@@ -72,6 +73,14 @@ async def security_headers(request: Request, call_next):
         "connect-src 'self' https://identitytoolkit.googleapis.com https://firestore.googleapis.com;"
     )
     return response
+
+
+@app.exception_handler(Exception)
+async def _debug_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "traceback": traceback.format_exc()},
+    )
 
 
 def _validate_mode(mode: str) -> str:
