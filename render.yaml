@@ -3,8 +3,7 @@ services:
     name: tokensaver
     runtime: python
     rootDir: backend
-    buildCommand: |
-      cd ../frontend && npm ci && npm run build && cd ../backend && pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
     envVars:
       - key: FIREBASE_DEV_MODE
