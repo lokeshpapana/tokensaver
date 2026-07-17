@@ -447,7 +447,7 @@ class FirestoreRateLimiter:
         cutoff = now - window
         reset_time = int((now // window + 1) * window)
         
-try:
+        try:
             # Use transaction for atomic read-increment-write
             @firestore.transactional
             def increment_in_transaction(transaction):
